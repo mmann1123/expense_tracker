@@ -86,6 +86,14 @@ def import_files(files):
                 data = data.rename(
                     columns={data.filter(like="Description").columns[0]: "Description"}
                 )
+        # Remove any row that contains the word "declined" ignoring case
+        data = data[
+            ~data.apply(
+                lambda row: row.astype(str).str.contains("declined", case=False).any(),
+                axis=1,
+            )
+        ]
+
         data = data[["Date", "Description", "Category", "Amount"]]
         data["Date"] = data["Date"].apply(lambda x: parser.parse(x, fuzzy=True))
 
@@ -198,18 +206,18 @@ def dashboard(df):
     selected_month = st.selectbox("Select Month", unique_months)
 
     # Filter dataframe based on selected month
-    filtered_df = df[df["Month"] == selected_month]
+    month_df = df[df["Month"] == selected_month]
 
     # create column of whether this is expense or income based on + or - of Amount
-    filtered_df["Type"] = "Expense"
-    filtered_df.loc[
-        filtered_df["Category"].str.contains("Income", case=False), "Type"
-    ] = "Income"
-    filtered_df.loc[
-        filtered_df["Category"].str.contains("Transfer/Payment", case=False), "Type"
+    month_df["Type"] = "Expense"
+    month_df.loc[month_df["Category"].str.contains("Income", case=False), "Type"] = (
+        "Income"
+    )
+    month_df.loc[
+        month_df["Category"].str.contains("Transfer/Payment", case=False), "Type"
     ] = "Transfer"
 
-    st.write(filtered_df)
+    # st.write(month_df) display input data
     # Selectbox to choose month
     selected_type = st.selectbox(
         "Select Income or Expense",
@@ -220,7 +228,7 @@ def dashboard(df):
         ],
     )
     # Filter dataframe based on selected month
-    filtered_df2 = filtered_df[filtered_df["Type"] == selected_type]
+    filtered_df2 = month_df[month_df["Type"] == selected_type]
 
     # update amounts
     filtered_df2["Amount"] = abs(filtered_df2["Amount"])
@@ -255,17 +263,32 @@ def dashboard(df):
     # display total expenses and total income
 
     # create column of whether this is expense or income based on + or - of Amount
-    total_expense = filtered_df[filtered_df["Type"] == "Expense"]["Amount"].sum()
-    total_income = filtered_df[filtered_df["Type"] == "Income"]["Amount"].sum()
+    total_expense = (
+        month_df[
+            (month_df["Type"] == "Expense")
+            & (~month_df["Category"].str.contains("Transfer/Payment", case=False))
+        ]["Amount"]
+        .abs()
+        .sum()
+    )
+
+    total_income = month_df[month_df["Type"] == "Income"]["Amount"].sum()
     st.write(
         f"Total Income: {total_income:,.2f}  Total Expense: {total_expense:,.2f} Net: {(total_income - abs(total_expense)):,.2f}"
     )
 
+    unique_categories = sorted([category for category in month_df["Category"].unique()])
+
+    # Create a table of total values for each unique category
+    category_totals = month_df.groupby("Category")["Amount"].sum().reset_index()
+    category_totals.columns = ["Category", "Total Amount"]
+    st.write("Total Values for Each Category")
+    st.write(category_totals)
+
     # create dropdown to select a category and display a table of expenses for that category
-    unique_categories = sorted([category for category in df["Category"].unique()])
     selected_category = st.selectbox("Select Category", unique_categories)
     # Filter dataframe based on selected category
-    filtered_df = df[df["Category"] == selected_category]
+    filtered_df = month_df[month_df["Category"] == selected_category]
     filtered_df.sort_values("Amount", ascending=True, inplace=True)
     filtered_df["Date"] = filtered_df["Date"].dt.strftime("%Y-%m-%d")
     # Display the table
@@ -278,6 +301,8 @@ def dashboard(df):
 if __name__ == "__main__":
     main()
 
-# %% !streamlit run expense_tracker.py
+
+# To run this app run:
+# # %% !streamlit run expense_tracker.py
 
 # %%

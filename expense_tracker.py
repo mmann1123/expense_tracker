@@ -1,6 +1,48 @@
 # %%
 import pandas as pd
 from dateutil import parser
+import sqlite3
+
+
+# Function to remove duplicates and save to SQLite
+def process_data(df):
+    # Assuming 'Category' and other necessary columns are present
+    df = df.drop_duplicates()
+    # Connect to SQLite database (or create if not exist)
+    conn = sqlite3.connect("expenses.db")
+    # Save the dataframe to SQLite table 'expenses'
+    df.to_sql("expenses", conn, if_exists="replace", index=False)
+    conn.close()
+
+
+# Function to load data for editing
+def load_data():
+    conn = sqlite3.connect("expenses.db")
+    query = "SELECT * FROM expenses"
+    df = pd.read_sql(query, conn)
+    conn.close()
+    return df
+
+
+def edit_data():
+    # Load data
+    df = load_data()
+
+    # Assuming you want to allow users to edit 'Category' for now
+    category_to_edit = st.selectbox("Select Entry to Edit", df.index)
+    new_category = st.text_input(
+        "New Category", value=df.loc[category_to_edit, "Category"]
+    )
+
+    if st.button("Update"):
+        # Update the DataFrame
+        df.loc[category_to_edit, "Category"] = new_category
+
+        # Save changes back to the database
+        conn = sqlite3.connect("expenses.db")
+        df.to_sql("expenses", conn, if_exists="replace", index=False)
+        conn.close()
+        st.success("Updated Successfully")
 
 
 # create popup window to select multiple files, columns Description, Category, Amount and Date selected regardless of capitalization, and added to a dataframe
@@ -45,7 +87,7 @@ def import_files(files):
                     columns={data.filter(like="Description").columns[0]: "Description"}
                 )
         data = data[["Date", "Description", "Category", "Amount"]]
-        data["Date"] = data["Date"].apply(lambda x: parser.parse(x))
+        data["Date"] = data["Date"].apply(lambda x: parser.parse(x, fuzzy=True))
 
         # add the file to the dataframe
         df = pd.concat([df, data], axis=0, ignore_index=True)
@@ -70,7 +112,7 @@ def categorize_expenses(df):
             "home",
             "Lawn & Garden",
         ],
-        "Rransportation": ["gas", "car$", "transportation"],
+        "Transportation": ["gas", "car$", "transportation"],
         "Entertainment": [
             "entertainment",
             "movies",
@@ -89,7 +131,7 @@ def categorize_expenses(df):
         "Education": ["education", "school", "books"],
         "Other": ["other"],
         "Transfer/Payment": ["transfer", "credit card", "payment"],
-        "Income": ["income", "Reimbursement", "Paycheck"],
+        "Income": ["income", "reimbursement", "paycheck"],
     }
 
     # iterate through each category and assign the category to the expense
@@ -114,15 +156,21 @@ import streamlit as st
 import plotly.express as px
 
 
-# Main app
 def main():
     # File uploader
     uploaded_files = st.file_uploader(
         "Choose files", accept_multiple_files=True, type=["csv"]
     )
     if uploaded_files:
-        if "df" not in st.session_state or st.button("Upload Data"):
-            st.session_state.df = categorize_expenses(import_files(uploaded_files))
+        df = import_files(uploaded_files)
+        df = categorize_expenses(df)
+        process_data(df)  # Process and save to database
+        df = load_data()  # Load data for editing
+        st.session_state.df = df
+
+    # if st.button("Load Data"):
+    #     df = load_data()  # Load data for editing
+    #     st.write(df)  # Display data
 
     if "df" in st.session_state:
         df = st.session_state.df
@@ -130,9 +178,15 @@ def main():
     else:
         st.write("Please upload data files.")
 
+    # Optional: Interface to add/edit entries
+    # This is a simple form to add or edit expenses. In a real app, you'd likely want more control.
+    # if st.button("Edit Data"):
+    #     edit_data()
+
 
 # Function to create dashboard
 def dashboard(df):
+    df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
 
     # Create a new column for the month
     df["Month"] = df["Date"].dt.strftime("%Y-%m")
@@ -148,12 +202,22 @@ def dashboard(df):
 
     # create column of whether this is expense or income based on + or - of Amount
     filtered_df["Type"] = "Expense"
-    filtered_df.loc[filtered_df["Amount"] > 0, "Type"] = "Income"
-    filtered_df.loc[filtered_df["Category"] == "Transfer/Payment", "Type"] = "Transfer"
+    filtered_df.loc[
+        filtered_df["Category"].str.contains("Income", case=False), "Type"
+    ] = "Income"
+    filtered_df.loc[
+        filtered_df["Category"].str.contains("Transfer/Payment", case=False), "Type"
+    ] = "Transfer"
 
+    st.write(filtered_df)
     # Selectbox to choose month
     selected_type = st.selectbox(
-        "Select Income or Expense", ["Expense", "Income", "Transfer"]
+        "Select Income or Expense",
+        [
+            "Expense",
+            "Income",
+            "Transfer",
+        ],
     )
     # Filter dataframe based on selected month
     filtered_df2 = filtered_df[filtered_df["Type"] == selected_type]
@@ -214,4 +278,6 @@ def dashboard(df):
 if __name__ == "__main__":
     main()
 
-# %%  !streamlit run expense_tracker.py
+# %% !streamlit run expense_tracker.py
+
+# %%

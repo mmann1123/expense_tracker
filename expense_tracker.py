@@ -2,6 +2,8 @@
 import pandas as pd
 from dateutil import parser
 import sqlite3
+import streamlit as st
+import plotly.express as px
 
 
 # Function to remove duplicates and save to SQLite
@@ -103,9 +105,6 @@ def import_files(files):
     return df
 
 
-# df = import_files()
-
-
 # create a new cateogry column to group expenses of similar types based on df.Category.unique()
 
 
@@ -160,8 +159,6 @@ def categorize_expenses(df):
 
 # df = categorize_expenses(df)
 # %% use streamlit to create a dashboard to show pie chart of expenses by category by month
-import streamlit as st
-import plotly.express as px
 
 
 def main():

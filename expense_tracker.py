@@ -193,10 +193,10 @@ def main():
         tab1, tab2 = st.tabs(["Monthly Dashboard", "Trends Analysis"])
         
         with tab1:
-            dashboard(df)
+            trends_analysis(df)
         
         with tab2:
-            trends_analysis(df)
+            dashboard(df)
     else:
         st.write("Please upload data files.")
 
@@ -311,7 +311,7 @@ def dashboard(df):
 
 # Function to create trends analysis
 def trends_analysis(df):
-    st.title("📈 Expense Trends Over Time")
+    st.title("Expense Trends Over Time")
     
     # Ensure Date column is datetime
     df["Date"] = pd.to_datetime(df["Date"], errors="coerce")

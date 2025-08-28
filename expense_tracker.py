@@ -404,28 +404,6 @@ def trends_analysis(df):
             st.subheader("Category Totals Comparison")
             category_totals = category_filtered.groupby("Category")["Amount"].sum().sort_values(ascending=False).reset_index()
             st.dataframe(category_totals)
-            
-            # Show category definitions
-            with st.expander("Category Definitions"):
-                category_definitions = {
-                    "Food": ["groceries", "food"],
-                    "Utilities": ["utilities", "internet", "phone"],
-                    "Housing": ["rent", "mortgage", "home", "Lawn & Garden"],
-                    "Transportation": ["gas", "car$", "transportation"],
-                    "Entertainment": ["entertainment", "movies", "music", "Restaurant", "dining", "alcohol", "bar"],
-                    "Travel": ["travel", "hotel", "airfare", "vacation"],
-                    "Clothing": ["clothing", "shoes", "apparel"],
-                    "Shopping": ["shopping", "retail", "Sporting Goods"],
-                    "Gifts": ["gifts", "donation", "charity"],
-                    "Health": ["health", "doctor", "pharmacy"],
-                    "Insurance": ["insurance", "premiums"],
-                    "Education": ["education", "school", "books"],
-                    "Other": ["other"]
-                }
-                
-                for category, keywords in category_definitions.items():
-                    if category in selected_categories:
-                        st.write(f"**{category}:** {', '.join(keywords)}")
     
     elif analysis_type == "Net Cash Flow":
         # Net cash flow analysis

@@ -19,6 +19,15 @@ def process_data(df):
     conn.close()
 
 
+def clear_database():
+    """Clear all data from the expenses database"""
+    conn = sqlite3.connect("expenses.db")
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM expenses")
+    conn.commit()
+    conn.close()
+
+
 # Function to load data for editing
 def load_data():
     conn = sqlite3.connect("expenses.db")
@@ -181,6 +190,19 @@ def main():
         process_data(df)  # Process and save to database
         df = load_data()  # Load data for editing
         st.session_state.df = df
+
+    # Clear database button
+    if st.button("🗑️ Clear Database", type="secondary", help="This will permanently delete all expense data"):
+        if st.session_state.get('confirm_clear', False):
+            clear_database()
+            if 'df' in st.session_state:
+                del st.session_state.df
+            st.success("Database cleared successfully!")
+            st.session_state.confirm_clear = False
+        else:
+            st.session_state.confirm_clear = True
+            st.warning("⚠️ Click again to confirm deletion of all data")
+            st.rerun()
 
     # if st.button("Load Data"):
     #     df = load_data()  # Load data for editing

@@ -369,15 +369,28 @@ def trends_analysis(df):
             st.metric("Total Period", f"${monthly_totals['Amount'].sum():.2f}")
     
     elif analysis_type == "Category Trends":
-        # Category spending trends
+        # Category spending trends using predefined categories
+        main_categories = [
+            "Food", "Utilities", "Housing", "Transportation", "Entertainment", 
+            "Travel", "Clothing", "Shopping", "Gifts", "Health", 
+            "Insurance", "Education", "Other"
+        ]
+        
         category_monthly = filtered_df[filtered_df["Type"] == "Expense"].groupby(["Month", "Category"])["Amount"].apply(lambda x: x.abs().sum()).reset_index()
         
+        # Filter to only show main categories (exclude Transfer/Payment and Income)
+        category_monthly_filtered = category_monthly[category_monthly["Category"].isin(main_categories)]
+        
         # Select categories to display
-        categories = sorted(category_monthly["Category"].unique())
-        selected_categories = st.multiselect("Select Categories", categories, default=categories[:5])
+        available_categories = sorted(category_monthly_filtered["Category"].unique())
+        selected_categories = st.multiselect(
+            "Select Categories to Compare", 
+            available_categories, 
+            default=available_categories[:5] if len(available_categories) >= 5 else available_categories
+        )
         
         if selected_categories:
-            category_filtered = category_monthly[category_monthly["Category"].isin(selected_categories)]
+            category_filtered = category_monthly_filtered[category_monthly_filtered["Category"].isin(selected_categories)]
             category_filtered["Month"] = pd.to_datetime(category_filtered["Month"])
             category_filtered = category_filtered.sort_values("Month")
             
@@ -391,6 +404,28 @@ def trends_analysis(df):
             st.subheader("Category Totals Comparison")
             category_totals = category_filtered.groupby("Category")["Amount"].sum().sort_values(ascending=False).reset_index()
             st.dataframe(category_totals)
+            
+            # Show category definitions
+            with st.expander("Category Definitions"):
+                category_definitions = {
+                    "Food": ["groceries", "food"],
+                    "Utilities": ["utilities", "internet", "phone"],
+                    "Housing": ["rent", "mortgage", "home", "Lawn & Garden"],
+                    "Transportation": ["gas", "car$", "transportation"],
+                    "Entertainment": ["entertainment", "movies", "music", "Restaurant", "dining", "alcohol", "bar"],
+                    "Travel": ["travel", "hotel", "airfare", "vacation"],
+                    "Clothing": ["clothing", "shoes", "apparel"],
+                    "Shopping": ["shopping", "retail", "Sporting Goods"],
+                    "Gifts": ["gifts", "donation", "charity"],
+                    "Health": ["health", "doctor", "pharmacy"],
+                    "Insurance": ["insurance", "premiums"],
+                    "Education": ["education", "school", "books"],
+                    "Other": ["other"]
+                }
+                
+                for category, keywords in category_definitions.items():
+                    if category in selected_categories:
+                        st.write(f"**{category}:** {', '.join(keywords)}")
     
     elif analysis_type == "Net Cash Flow":
         # Net cash flow analysis

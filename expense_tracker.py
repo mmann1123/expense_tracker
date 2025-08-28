@@ -4,6 +4,8 @@ from dateutil import parser
 import sqlite3
 import streamlit as st
 import plotly.express as px
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 
 
 # Function to remove duplicates and save to SQLite
@@ -162,6 +164,8 @@ def categorize_expenses(df):
 
 
 def main():
+    st.set_page_config(page_title="Expense Tracker", layout="wide")
+    
     # File uploader
     uploaded_files = st.file_uploader(
         "Choose files", accept_multiple_files=True, type=["csv"]
@@ -179,7 +183,15 @@ def main():
 
     if "df" in st.session_state:
         df = st.session_state.df
-        dashboard(df)
+        
+        # Create tabs
+        tab1, tab2 = st.tabs(["Monthly Dashboard", "Trends Analysis"])
+        
+        with tab1:
+            dashboard(df)
+        
+        with tab2:
+            trends_analysis(df)
     else:
         st.write("Please upload data files.")
 
@@ -290,6 +302,168 @@ def dashboard(df):
     filtered_df["Date"] = filtered_df["Date"].dt.strftime("%Y-%m-%d")
     # Display the table
     st.write(filtered_df)
+
+
+# Function to create trends analysis
+def trends_analysis(df):
+    st.title("📈 Expense Trends Over Time")
+    
+    # Ensure Date column is datetime
+    df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
+    df["Month"] = df["Date"].dt.strftime("%Y-%m")
+    
+    # Create Type column
+    df["Type"] = "Expense"
+    df.loc[df["Category"].str.contains("Income", case=False), "Type"] = "Income"
+    df.loc[df["Category"].str.contains("Transfer/Payment", case=False), "Type"] = "Transfer"
+    
+    # Filter options
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        analysis_type = st.selectbox(
+            "Analysis Type", 
+            ["Total Spending", "Category Trends", "Net Cash Flow", "Monthly Breakdown"]
+        )
+    
+    with col2:
+        # Date range filter
+        min_date = df["Date"].min()
+        max_date = df["Date"].max()
+        date_range = st.date_input(
+            "Date Range",
+            value=(min_date, max_date),
+            min_value=min_date,
+            max_value=max_date
+        )
+    
+    # Filter data by date range
+    if len(date_range) == 2:
+        start_date, end_date = date_range
+        filtered_df = df[(df["Date"] >= pd.to_datetime(start_date)) & 
+                        (df["Date"] <= pd.to_datetime(end_date))]
+    else:
+        filtered_df = df
+    
+    if analysis_type == "Total Spending":
+        # Total spending trend over time
+        monthly_totals = filtered_df[filtered_df["Type"] == "Expense"].groupby("Month")["Amount"].apply(lambda x: x.abs().sum()).reset_index()
+        monthly_totals["Month"] = pd.to_datetime(monthly_totals["Month"])
+        monthly_totals = monthly_totals.sort_values("Month")
+        
+        fig = px.line(monthly_totals, x="Month", y="Amount", 
+                     title="Total Monthly Spending Trend",
+                     markers=True)
+        fig.update_layout(xaxis_title="Month", yaxis_title="Total Spending ($)")
+        st.plotly_chart(fig, use_container_width=True)
+        
+        # Summary statistics
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric("Average Monthly Spending", f"${monthly_totals['Amount'].mean():.2f}")
+        with col2:
+            st.metric("Highest Month", f"${monthly_totals['Amount'].max():.2f}")
+        with col3:
+            st.metric("Lowest Month", f"${monthly_totals['Amount'].min():.2f}")
+        with col4:
+            st.metric("Total Period", f"${monthly_totals['Amount'].sum():.2f}")
+    
+    elif analysis_type == "Category Trends":
+        # Category spending trends
+        category_monthly = filtered_df[filtered_df["Type"] == "Expense"].groupby(["Month", "Category"])["Amount"].apply(lambda x: x.abs().sum()).reset_index()
+        
+        # Select categories to display
+        categories = sorted(category_monthly["Category"].unique())
+        selected_categories = st.multiselect("Select Categories", categories, default=categories[:5])
+        
+        if selected_categories:
+            category_filtered = category_monthly[category_monthly["Category"].isin(selected_categories)]
+            category_filtered["Month"] = pd.to_datetime(category_filtered["Month"])
+            category_filtered = category_filtered.sort_values("Month")
+            
+            fig = px.line(category_filtered, x="Month", y="Amount", color="Category",
+                         title="Category Spending Trends Over Time",
+                         markers=True)
+            fig.update_layout(xaxis_title="Month", yaxis_title="Amount ($)")
+            st.plotly_chart(fig, use_container_width=True)
+            
+            # Category comparison table
+            st.subheader("Category Totals Comparison")
+            category_totals = category_filtered.groupby("Category")["Amount"].sum().sort_values(ascending=False).reset_index()
+            st.dataframe(category_totals)
+    
+    elif analysis_type == "Net Cash Flow":
+        # Net cash flow analysis
+        monthly_income = filtered_df[filtered_df["Type"] == "Income"].groupby("Month")["Amount"].sum().reset_index()
+        monthly_expense = filtered_df[filtered_df["Type"] == "Expense"].groupby("Month")["Amount"].apply(lambda x: x.abs().sum()).reset_index()
+        
+        # Merge income and expense data
+        cash_flow = pd.merge(monthly_income, monthly_expense, on="Month", how="outer", suffixes=("_Income", "_Expense")).fillna(0)
+        cash_flow["Net_Flow"] = cash_flow["Amount_Income"] - cash_flow["Amount_Expense"]
+        cash_flow["Month"] = pd.to_datetime(cash_flow["Month"])
+        cash_flow = cash_flow.sort_values("Month")
+        
+        # Create subplot with income, expense, and net flow
+        fig = make_subplots(specs=[[{"secondary_y": True}]])
+        
+        fig.add_trace(
+            go.Scatter(x=cash_flow["Month"], y=cash_flow["Amount_Income"], 
+                      mode="lines+markers", name="Income", line=dict(color="green")),
+            secondary_y=False,
+        )
+        
+        fig.add_trace(
+            go.Scatter(x=cash_flow["Month"], y=cash_flow["Amount_Expense"], 
+                      mode="lines+markers", name="Expenses", line=dict(color="red")),
+            secondary_y=False,
+        )
+        
+        fig.add_trace(
+            go.Scatter(x=cash_flow["Month"], y=cash_flow["Net_Flow"], 
+                      mode="lines+markers", name="Net Flow", line=dict(color="blue", width=3)),
+            secondary_y=False,
+        )
+        
+        fig.update_layout(title="Monthly Cash Flow Analysis")
+        fig.update_xaxis(title_text="Month")
+        fig.update_yaxis(title_text="Amount ($)", secondary_y=False)
+        
+        st.plotly_chart(fig, use_container_width=True)
+        
+        # Cash flow metrics
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            avg_net = cash_flow["Net_Flow"].mean()
+            st.metric("Average Monthly Net Flow", f"${avg_net:.2f}", delta=None if avg_net >= 0 else "Deficit")
+        with col2:
+            total_income = cash_flow["Amount_Income"].sum()
+            st.metric("Total Income", f"${total_income:.2f}")
+        with col3:
+            total_expense = cash_flow["Amount_Expense"].sum()
+            st.metric("Total Expenses", f"${total_expense:.2f}")
+    
+    elif analysis_type == "Monthly Breakdown":
+        # Detailed monthly breakdown with multiple visualizations
+        st.subheader("Monthly Expense Breakdown")
+        
+        # Heatmap of spending by category and month
+        monthly_category = filtered_df[filtered_df["Type"] == "Expense"].groupby(["Month", "Category"])["Amount"].apply(lambda x: x.abs().sum()).reset_index()
+        heatmap_data = monthly_category.pivot(index="Category", columns="Month", values="Amount").fillna(0)
+        
+        fig = px.imshow(heatmap_data, 
+                       title="Spending Heatmap by Category and Month",
+                       labels=dict(x="Month", y="Category", color="Amount ($)"),
+                       aspect="auto")
+        st.plotly_chart(fig, use_container_width=True)
+        
+        # Top spending months
+        st.subheader("Top Spending Months")
+        monthly_totals = filtered_df[filtered_df["Type"] == "Expense"].groupby("Month")["Amount"].apply(lambda x: x.abs().sum()).reset_index()
+        monthly_totals = monthly_totals.sort_values("Amount", ascending=False).head(10)
+        
+        fig = px.bar(monthly_totals, x="Month", y="Amount",
+                    title="Top 10 Highest Spending Months")
+        st.plotly_chart(fig, use_container_width=True)
 
 
 # Create dashboard

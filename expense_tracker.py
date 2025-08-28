@@ -190,7 +190,7 @@ def main():
         df = st.session_state.df
         
         # Create tabs
-        tab1, tab2 = st.tabs(["Monthly Dashboard", "Trends Analysis"])
+        tab1, tab2 = st.tabs([ "Trends Analysis","Monthly Dashboard"])
         
         with tab1:
             trends_analysis(df)

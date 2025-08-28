@@ -424,9 +424,10 @@ def trends_analysis(df):
             secondary_y=False,
         )
         
-        fig.update_layout(title="Monthly Cash Flow Analysis")
-        fig.update_xaxis(title_text="Month")
-        fig.update_yaxis(title_text="Amount ($)", secondary_y=False)
+        fig.update_layout(
+            xaxis_title="Month",
+            yaxis_title="Amount ($)"
+        )
         
         st.plotly_chart(fig, use_container_width=True)
         

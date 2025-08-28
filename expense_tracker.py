@@ -166,6 +166,11 @@ def categorize_expenses(df):
 def main():
     st.set_page_config(page_title="Expense Tracker", layout="wide")
     
+    # Title Image
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        st.image("static/ascii-text-art.png", width=600)
+    
     # File uploader
     uploaded_files = st.file_uploader(
         "Choose files", accept_multiple_files=True, type=["csv"]

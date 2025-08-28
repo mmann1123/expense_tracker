@@ -1,0 +1,8 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Expense Tracker
+Comment=Personal expense tracking and analysis tool
+Exec=expense_tracker
+Icon=expense_tracker
+Categories=Office;Finance;

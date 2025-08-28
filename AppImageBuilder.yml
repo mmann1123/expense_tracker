@@ -1,0 +1,51 @@
+version: 1
+
+script:
+  # Remove any previous build
+  - rm -rf AppDir  || true
+  # Make directories
+  - mkdir -p AppDir/usr/bin
+  - mkdir -p AppDir/usr/share/applications
+  - mkdir -p AppDir/usr/share/icons/hicolor/256x256/apps
+  
+  # Install Python and dependencies
+  - python3 -m venv AppDir/usr
+  - AppDir/usr/bin/pip install --upgrade pip
+  - AppDir/usr/bin/pip install -r requirements.txt
+  
+  # Copy application files
+  - cp expense_tracker.py AppDir/usr/bin/
+  - cp run_app.py AppDir/usr/bin/expense_tracker
+  - chmod +x AppDir/usr/bin/expense_tracker
+  - cp -r static AppDir/usr/bin/ || true
+  
+  # Copy desktop file and icon
+  - cp expense_tracker.desktop AppDir/usr/share/applications/
+  - cp static/ascii-text-art.png AppDir/usr/share/icons/hicolor/256x256/apps/expense_tracker.png || true
+
+AppDir:
+  path: ./AppDir
+
+  app_info:
+    id: com.github.expense_tracker
+    name: Expense Tracker
+    icon: expense_tracker
+    version: !ENV ${VERSION}
+    exec: usr/bin/expense_tracker
+    exec_args: $@
+
+  runtime:
+    env:
+      PYTHONPATH: $APPDIR/usr/lib/python3.8/site-packages:$PYTHONPATH
+
+  files:
+    exclude:
+      - usr/share/man
+      - usr/share/doc/*/README.*
+      - usr/share/doc/*/CHANGELOG.*
+      - usr/share/doc/*/NEWS.*
+      - usr/share/doc/*/TODO.*
+
+AppImage:
+  arch: x86_64
+  file_name: expense_tracker-!ENV ${VERSION}-x86_64.AppImage

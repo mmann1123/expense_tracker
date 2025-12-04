@@ -120,42 +120,69 @@ def import_files(files):
 
 
 def categorize_expenses(df):
-    # create a dictionary of categories
+    # create a dictionary of categories - consolidated into ~7 main spending categories
     category = {
-        "Food": ["groceries", "food"],
-        "Utilities": ["utilities", "internet", "phone"],
         "Housing": [
-            "rent",
-            "mortgage",
-            "home",
-            "Lawn & Garden",
+            "rent", "mortgage", "Lawn & Garden", "utilities",
+            "internet", "phone", "washington gas", "electric",
         ],
-        "Transportation": ["gas", "car$", "transportation"],
-        "Entertainment": [
-            "entertainment",
-            "movies",
-            "music",
-            "Restaurant",
-            "dining",
-            "alcohol",
-            "bar",
+        "Home Improvement": [
+            "home improvement", "solar", "home", "furnishings", "furniture",
         ],
-        "Travel": ["travel", "hotel", "airfare", "vacation"],
-        "Clothing": ["clothing", "shoes", "apparel"],
-        "Shopping": ["shopping", "retail", "Sporting Goods"],
-        "Gifts": ["gifts", "donation", "charity"],
-        "Health": ["health", "doctor", "pharmacy"],
-        "Insurance": ["insurance", "premiums"],
-        "Education": ["education", "school", "books"],
-        "Other": ["other"],
-        "Transfer/Payment": ["transfer", "credit card", "payment"],
-        "Income": ["income", "reimbursement", "paycheck"],
+        "Food & Dining": [
+            "groceries", "food", "Restaurant", "dining", "alcohol", "bar",
+        ],
+        "Transportation": ["gas", "car", "transportation", "uber", "lyft", "parking"],
+        "Shopping & Entertainment": [
+            "entertainment", "movies", "music", "travel", "hotel", "airfare",
+            "vacation", "clothing", "shoes", "apparel", "shopping", "retail",
+            "Sporting Goods", "amazon",
+        ],
+        "Health & Insurance": [
+            "health", "doctor", "pharmacy", "insurance", "premiums", "medical",
+            "life",
+        ],
+        "Taxes": ["irs", "tax", "usataxpymt", "dcsttaxrfd"],
+        "Other": ["other", "gifts", "donation", "charity", "education", "school", "books", "529", "contrib"],
+        "Transfer/Payment": ["transfer", "credit card"],
+        "Income": ["income", "reimbursement", "paycheck", "bonus", "interest income", "fed sal", "payroll", "ibrd", "fsa"],
     }
 
     # iterate through each category and assign the category to the expense
+    # Check both Category and Description columns for matches
+    # Process Income LAST so it takes precedence over Transfer/Payment
     for key, value in category.items():
-        for item in value:
-            df.loc[df["Category"].str.contains(item, case=False), "Category"] = key
+        if key != "Income":
+            for item in value:
+                mask = df["Category"].str.contains(item, case=False) | df["Description"].str.contains(item, case=False)
+                df.loc[mask, "Category"] = key
+
+    # Process Income last to override any false matches
+    for item in category["Income"]:
+        mask = df["Category"].str.contains(item, case=False) | df["Description"].str.contains(item, case=False)
+        df.loc[mask, "Category"] = "Income"
+
+    # Handle Zelle transfers specially: positive = Income, negative = Expense
+    zelle_mask = df["Description"].str.contains("zelle", case=False)
+    df.loc[zelle_mask & (df["Amount"] > 0), "Category"] = "Income"
+    df.loc[zelle_mask & (df["Amount"] < 0), "Category"] = "Other"
+
+    # For "Category Pending" transactions, try to match Description to other categorized transactions
+    pending_mask = df["Category"].str.contains("Category Pending", case=False)
+    if pending_mask.any():
+        # Build a lookup from Description to Category using properly categorized transactions
+        categorized = df[~pending_mask & ~df["Category"].isin(["Category Pending"])]
+        desc_to_category = categorized.drop_duplicates(subset=["Description"]).set_index("Description")["Category"].to_dict()
+
+        # Apply matching categories to pending transactions
+        for idx in df[pending_mask].index:
+            desc = df.loc[idx, "Description"]
+            if desc in desc_to_category:
+                df.loc[idx, "Category"] = desc_to_category[desc]
+
+    # Final fallback: any still "Category Pending" goes to Other
+    pending_mask = df["Category"].str.contains("Category Pending", case=False)
+    df.loc[pending_mask, "Category"] = "Other"
 
     # Convert the Date column to a datetime object
     df["Date"] = pd.to_datetime(df["Date"])
@@ -202,7 +229,7 @@ def main():
         else:
             st.session_state.confirm_clear = True
             st.warning("⚠️ Click again to confirm deletion of all data")
-            st.rerun()
+            st.experimental_rerun()
 
     # if st.button("Load Data"):
     #     df = load_data()  # Load data for editing
@@ -398,9 +425,8 @@ def trends_analysis(df):
     elif analysis_type == "Category Trends":
         # Category spending trends using predefined categories
         main_categories = [
-            "Food", "Utilities", "Housing", "Transportation", "Entertainment", 
-            "Travel", "Clothing", "Shopping", "Gifts", "Health", 
-            "Insurance", "Education", "Other"
+            "Housing", "Home Improvement", "Food & Dining", "Transportation",
+            "Shopping & Entertainment", "Health & Insurance", "Taxes", "Other"
         ]
         
         category_monthly = filtered_df[filtered_df["Type"] == "Expense"].groupby(["Month", "Category"])["Amount"].apply(lambda x: x.abs().sum()).reset_index()
@@ -411,22 +437,26 @@ def trends_analysis(df):
         # Select categories to display
         available_categories = sorted(category_monthly_filtered["Category"].unique())
         selected_categories = st.multiselect(
-            "Select Categories to Compare", 
-            available_categories, 
-            default=available_categories[:5] if len(available_categories) >= 5 else available_categories
+            "Select Categories to Compare",
+            available_categories,
+            default=available_categories
         )
         
         if selected_categories:
             category_filtered = category_monthly_filtered[category_monthly_filtered["Category"].isin(selected_categories)]
             category_filtered["Month"] = pd.to_datetime(category_filtered["Month"])
             category_filtered = category_filtered.sort_values("Month")
-            
-            fig = px.line(category_filtered, x="Month", y="Amount", color="Category",
-                         title="Category Spending Trends Over Time",
-                         markers=True)
+
+            # Pivot data for stacked area chart
+            pivot_data = category_filtered.pivot(index="Month", columns="Category", values="Amount").fillna(0)
+            pivot_data = pivot_data.sort_index()
+
+            fig = px.area(pivot_data, x=pivot_data.index, y=pivot_data.columns,
+                         title="Category Spending Trends Over Time (Stacked)",
+                         labels={"value": "Amount ($)", "variable": "Category"})
             fig.update_layout(xaxis_title="Month", yaxis_title="Amount ($)")
             st.plotly_chart(fig, use_container_width=True)
-            
+
             # Category comparison table
             st.subheader("Category Totals Comparison")
             category_totals = category_filtered.groupby("Category")["Amount"].sum().sort_values(ascending=False).reset_index()
@@ -486,22 +516,51 @@ def trends_analysis(df):
     elif analysis_type == "Monthly Breakdown":
         # Detailed monthly breakdown with multiple visualizations
         st.subheader("Monthly Expense Breakdown")
-        
+
+        # Threshold slider to aggregate minor categories
+        threshold_pct = st.slider("Aggregate categories below % of total spending", 1, 20, 5)
+
+        # Calculate category totals and aggregate small ones
+        expense_df = filtered_df[filtered_df["Type"] == "Expense"].copy()
+        expense_df["Amount"] = expense_df["Amount"].abs()
+
+        # Find categories that are below threshold
+        total_spending = expense_df["Amount"].sum()
+        category_totals = expense_df.groupby("Category")["Amount"].sum()
+        category_pct = (category_totals / total_spending) * 100
+        minor_categories = category_pct[category_pct < threshold_pct].index.tolist()
+
+        # Create aggregated category column
+        expense_df["Category_Agg"] = expense_df["Category"].apply(
+            lambda x: "Other (Minor)" if x in minor_categories else x
+        )
+
         # Heatmap of spending by category and month
-        monthly_category = filtered_df[filtered_df["Type"] == "Expense"].groupby(["Month", "Category"])["Amount"].apply(lambda x: x.abs().sum()).reset_index()
-        heatmap_data = monthly_category.pivot(index="Category", columns="Month", values="Amount").fillna(0)
-        
-        fig = px.imshow(heatmap_data, 
+        monthly_category = expense_df.groupby(["Month", "Category_Agg"])["Amount"].sum().reset_index()
+        heatmap_data = monthly_category.pivot(index="Category_Agg", columns="Month", values="Amount").fillna(0)
+
+        # Sort by total spending (descending) so biggest categories are at top
+        heatmap_data["Total"] = heatmap_data.sum(axis=1)
+        heatmap_data = heatmap_data.sort_values("Total", ascending=False).drop("Total", axis=1)
+
+        fig = px.imshow(heatmap_data,
                        title="Spending Heatmap by Category and Month",
                        labels=dict(x="Month", y="Category", color="Amount ($)"),
                        aspect="auto")
         st.plotly_chart(fig, use_container_width=True)
-        
+
+        # Show aggregated category breakdown
+        st.subheader("Category Breakdown")
+        cat_summary = expense_df.groupby("Category_Agg")["Amount"].sum().sort_values(ascending=False).reset_index()
+        cat_summary.columns = ["Category", "Total Amount"]
+        cat_summary["% of Total"] = (cat_summary["Total Amount"] / total_spending * 100).round(1)
+        st.dataframe(cat_summary)
+
         # Top spending months
         st.subheader("Top Spending Months")
-        monthly_totals = filtered_df[filtered_df["Type"] == "Expense"].groupby("Month")["Amount"].apply(lambda x: x.abs().sum()).reset_index()
+        monthly_totals = expense_df.groupby("Month")["Amount"].sum().reset_index()
         monthly_totals = monthly_totals.sort_values("Amount", ascending=False).head(10)
-        
+
         fig = px.bar(monthly_totals, x="Month", y="Amount",
                     title="Top 10 Highest Spending Months")
         st.plotly_chart(fig, use_container_width=True)

@@ -1,0 +1,11 @@
+name: expense_tracker
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - pandas
+  - streamlit
+  - plotly
+  - numpy=1.23.5
+  - pip
+  - altair=4.2.2

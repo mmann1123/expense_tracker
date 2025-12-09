@@ -58,7 +58,7 @@ out = import_files(
     [
         "/home/mmann1123/Downloads/joint.csv",
         "/home/mmann1123/Downloads/mike.csv",
-        "/home/mmann1123/Downloads/checkin.csv",
+        # "/home/mmann1123/Downloads/checkin.csv",
     ]
 )
 print(out)
@@ -73,7 +73,7 @@ df = pd.DataFrame()
 for file in [
     "/home/mmann1123/Downloads/mike.csv",
     "/home/mmann1123/Downloads/joint.csv",
-    "/home/mmann1123/Downloads/checkin.csv",
+    # "/home/mmann1123/Downloads/checkin.csv",
 ]:
     # read the file into a dataframe
     data = pd.read_csv(

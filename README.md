@@ -2,7 +2,7 @@
 
 This is a simple expense tracker application built using Python, Streamlit, and SQLite. The application allows users to upload CSV files containing expense data, categorize expenses, and visualize the data using various charts and tables.
 
-<video controls src="static/expense2.mp4" title="Title"></video>
+![alt text](static/expense.png)
 
 ## Features
 

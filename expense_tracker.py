@@ -10,11 +10,15 @@ from plotly.subplots import make_subplots
 
 # Function to remove duplicates and save to SQLite
 def process_data(df):
-    # Assuming 'Category' and other necessary columns are present
-    df = df.drop_duplicates()
-    # Connect to SQLite database (or create if not exist)
     conn = sqlite3.connect("expenses.db")
-    # Save the dataframe to SQLite table 'expenses'
+    # Load existing data if table exists
+    try:
+        existing = pd.read_sql("SELECT * FROM expenses", conn)
+        df = pd.concat([existing, df], ignore_index=True)
+    except Exception:
+        pass  # Table doesn't exist yet
+    # Deduplicate on the natural key for a transaction
+    df = df.drop_duplicates(subset=["Date", "Description", "Amount"])
     df.to_sql("expenses", conn, if_exists="replace", index=False)
     conn.close()
 
@@ -94,11 +98,20 @@ def import_files(files):
                             ).columns[0]: "Date"
                         }
                     )
-            # select the first column with "Descritpion" in the name and rename it to "Description"
+            # select the first column with "Description" in the name and rename it to "Description"
             if "Description" not in data.columns:
-                data = data.rename(
-                    columns={data.filter(like="Description").columns[0]: "Description"}
-                )
+                try:
+                    data = data.rename(
+                        columns={data.filter(like="Description").columns[0]: "Description"}
+                    )
+                except IndexError:
+                    try:
+                        data = data.rename(
+                            columns={data.filter(like="description").columns[0]: "Description"}
+                        )
+                    except IndexError:
+                        st.error(f"Could not find a 'Description' column in uploaded file.")
+                        continue
         # Remove any row that contains the word "declined" ignoring case
         data = data[
             ~data.apply(
@@ -112,7 +125,7 @@ def import_files(files):
 
         # add the file to the dataframe
         df = pd.concat([df, data], axis=0, ignore_index=True)
-        df.dropna(inplace=True)
+    df.dropna(inplace=True)
     return df
 
 
@@ -120,32 +133,45 @@ def import_files(files):
 
 
 def categorize_expenses(df):
-    # create a dictionary of categories - consolidated into ~7 main spending categories
+    # create a dictionary of categories - consolidated into ~10 main spending categories
+    # NOTE: Order matters — generic keywords (e.g. "gas") are processed first,
+    # then more specific ones (e.g. "washington gas") override them.
     category = {
+        "Transportation": [
+            "gas", "car", "transportation", "uber", "lyft", "parking",
+            "public transportation", "smartrip",
+        ],
         "Housing": [
-            "rent", "mortgage", "Lawn & Garden", "utilities",
-            "internet", "phone", "washington gas", "electric",
+            "rent", "mortgage", "mortgage & rent", "Lawn & Garden", "utilities",
+            "internet", "phone", "mobile phone", "washington gas", "electric",
         ],
         "Home Improvement": [
             "home improvement", "solar", "home", "furnishings", "furniture",
         ],
         "Food & Dining": [
-            "groceries", "food", "Restaurant", "dining", "alcohol", "bar",
+            "groceries", "food", "restaurant", "restaurants", "dining",
+            "alcohol", "bar", "fast food", "coffee",
         ],
-        "Transportation": ["gas", "car", "transportation", "uber", "lyft", "parking"],
         "Shopping & Entertainment": [
             "entertainment", "movies", "music", "travel", "hotel", "airfare",
             "vacation", "clothing", "shoes", "apparel", "shopping", "retail",
-            "Sporting Goods", "amazon",
+            "sporting goods", "sports", "amazon", "books",
         ],
         "Health & Insurance": [
             "health", "doctor", "pharmacy", "insurance", "premiums", "medical",
-            "life",
+            "life insurance",
         ],
         "Taxes": ["irs", "tax", "usataxpymt", "dcsttaxrfd"],
-        "Other": ["other", "gifts", "donation", "charity", "education", "school", "books", "529", "contrib"],
-        "Transfer/Payment": ["transfer", "credit card"],
-        "Income": ["income", "reimbursement", "paycheck", "bonus", "interest income", "fed sal", "payroll", "ibrd", "fsa"],
+        "Other": [
+            "other", "gifts", "donation", "charity", "education", "school",
+            "529", "contrib", "personal care", "home services",
+            "service & parts", "check", "hosting", "uncategorized",
+        ],
+        "Transfer/Payment": ["transfer", "credit card payment", "credit card"],
+        "Income": [
+            "income", "reimbursement", "paycheck", "bonus", "interest income",
+            "fed sal", "payroll", "ibrd", "fsa", "deposit",
+        ],
     }
 
     # iterate through each category and assign the category to the expense
@@ -154,21 +180,21 @@ def categorize_expenses(df):
     for key, value in category.items():
         if key != "Income":
             for item in value:
-                mask = df["Category"].str.contains(item, case=False) | df["Description"].str.contains(item, case=False)
+                mask = df["Category"].str.contains(item, case=False, na=False) | df["Description"].str.contains(item, case=False, na=False)
                 df.loc[mask, "Category"] = key
 
     # Process Income last to override any false matches
     for item in category["Income"]:
-        mask = df["Category"].str.contains(item, case=False) | df["Description"].str.contains(item, case=False)
+        mask = df["Category"].str.contains(item, case=False, na=False) | df["Description"].str.contains(item, case=False, na=False)
         df.loc[mask, "Category"] = "Income"
 
     # Handle Zelle transfers specially: positive = Income, negative = Expense
-    zelle_mask = df["Description"].str.contains("zelle", case=False)
+    zelle_mask = df["Description"].str.contains("zelle", case=False, na=False)
     df.loc[zelle_mask & (df["Amount"] > 0), "Category"] = "Income"
     df.loc[zelle_mask & (df["Amount"] < 0), "Category"] = "Other"
 
     # For "Category Pending" transactions, try to match Description to other categorized transactions
-    pending_mask = df["Category"].str.contains("Category Pending", case=False)
+    pending_mask = df["Category"].str.contains("Category Pending", case=False, na=False)
     if pending_mask.any():
         # Build a lookup from Description to Category using properly categorized transactions
         categorized = df[~pending_mask & ~df["Category"].isin(["Category Pending"])]
@@ -181,7 +207,7 @@ def categorize_expenses(df):
                 df.loc[idx, "Category"] = desc_to_category[desc]
 
     # Final fallback: any still "Category Pending" goes to Other
-    pending_mask = df["Category"].str.contains("Category Pending", case=False)
+    pending_mask = df["Category"].str.contains("Category Pending", case=False, na=False)
     df.loc[pending_mask, "Category"] = "Other"
 
     # Convert the Date column to a datetime object
@@ -229,7 +255,7 @@ def main():
         else:
             st.session_state.confirm_clear = True
             st.warning("⚠️ Click again to confirm deletion of all data")
-            st.experimental_rerun()
+            st.rerun()
 
     # if st.button("Load Data"):
     #     df = load_data()  # Load data for editing
@@ -257,6 +283,7 @@ def main():
 
 # Function to create dashboard
 def dashboard(df):
+    df = df.copy()
     df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
 
     # Create a new column for the month
@@ -269,15 +296,15 @@ def dashboard(df):
     selected_month = st.selectbox("Select Month", unique_months)
 
     # Filter dataframe based on selected month
-    month_df = df[df["Month"] == selected_month]
+    month_df = df[df["Month"] == selected_month].copy()
 
     # create column of whether this is expense or income based on + or - of Amount
     month_df["Type"] = "Expense"
-    month_df.loc[month_df["Category"].str.contains("Income", case=False), "Type"] = (
+    month_df.loc[month_df["Category"].str.contains("Income", case=False, na=False), "Type"] = (
         "Income"
     )
     month_df.loc[
-        month_df["Category"].str.contains("Transfer/Payment", case=False), "Type"
+        month_df["Category"].str.contains("Transfer/Payment", case=False, na=False), "Type"
     ] = "Transfer"
 
     # st.write(month_df) display input data
@@ -291,10 +318,10 @@ def dashboard(df):
         ],
     )
     # Filter dataframe based on selected month
-    filtered_df2 = month_df[month_df["Type"] == selected_type]
+    filtered_df2 = month_df[month_df["Type"] == selected_type].copy()
 
-    # update amounts
-    filtered_df2["Amount"] = abs(filtered_df2["Amount"])
+    # use absolute amounts for display (pie chart)
+    filtered_df2["Amount"] = filtered_df2["Amount"].abs()
 
     # Create a pivot table to group the expenses by category
     pivot = filtered_df2.pivot_table(
@@ -335,15 +362,15 @@ def dashboard(df):
         .sum()
     )
 
-    total_income = month_df[month_df["Type"] == "Income"]["Amount"].sum()
+    total_income = month_df[month_df["Type"] == "Income"]["Amount"].abs().sum()
     st.write(
-        f"Total Income: {total_income:,.2f}  Total Expense: {total_expense:,.2f} Net: {(total_income - abs(total_expense)):,.2f}"
+        f"Total Income: {total_income:,.2f}  Total Expense: {total_expense:,.2f} Net: {(total_income - total_expense):,.2f}"
     )
 
     unique_categories = sorted([category for category in month_df["Category"].unique()])
 
-    # Create a table of total values for each unique category
-    category_totals = month_df.groupby("Category")["Amount"].sum().reset_index()
+    # Create a table of total values for each unique category (net amounts per category)
+    category_totals = month_df.groupby("Category")["Amount"].sum().abs().reset_index()
     category_totals.columns = ["Category", "Total Amount"]
     st.write("Total Values for Each Category")
     st.write(category_totals)
@@ -361,15 +388,17 @@ def dashboard(df):
 # Function to create trends analysis
 def trends_analysis(df):
     st.title("Expense Trends Over Time")
-    
+
+    df = df.copy()
+
     # Ensure Date column is datetime
     df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
     df["Month"] = df["Date"].dt.strftime("%Y-%m")
-    
+
     # Create Type column
     df["Type"] = "Expense"
-    df.loc[df["Category"].str.contains("Income", case=False), "Type"] = "Income"
-    df.loc[df["Category"].str.contains("Transfer/Payment", case=False), "Type"] = "Transfer"
+    df.loc[df["Category"].str.contains("Income", case=False, na=False), "Type"] = "Income"
+    df.loc[df["Category"].str.contains("Transfer/Payment", case=False, na=False), "Type"] = "Transfer"
     
     # Filter options
     col1, col2 = st.columns(2)

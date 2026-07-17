@@ -17,6 +17,8 @@ def process_data(df):
         df = pd.concat([existing, df], ignore_index=True)
     except Exception:
         pass  # Table doesn't exist yet
+    # Ensure Date is stored as string for SQLite compatibility
+    df["Date"] = pd.to_datetime(df["Date"]).dt.strftime("%Y-%m-%d")
     # Deduplicate on the natural key for a transaction
     df = df.drop_duplicates(subset=["Date", "Description", "Amount"])
     df.to_sql("expenses", conn, if_exists="replace", index=False)
